@@ -28,7 +28,6 @@ Multiple CP sections in a line:
 - $pieceIndex is enclosed by '<>'. If not, output the error and abort.
 - The three parts in a CP section always come together and in the order of the sample CP section above.  CP sections may be repeated multiple times within the same line.
   If the sections are not structured as described, output the error and abort.
-- The number of $pieceIndex, $pieceLength and $pieceOD within the same group should be the same. If not, throw detailed error msg and abort.
 - After finding the start of CP paragraph, if a line does not start with '<', treat it as the end of CP groups and we can process the next file.
 
 
