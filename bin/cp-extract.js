@@ -17,6 +17,41 @@ function listTxtFiles(dir) {
     .sort();
 }
 
+function extractSn(fileName) {
+  const base = path.basename(fileName, path.extname(fileName));
+  const sn = base.split('.')[0] || base;
+  return sn;
+}
+
+function sortBySnWithDashOne(names) {
+  return names
+    .map((name, idx) => {
+      const sn = extractSn(name);
+      const isDashOne = /-1$/.test(sn);
+      const baseSn = isDashOne ? sn.replace(/-1$/, '') : sn;
+      const baseNum = /^\d+$/.test(baseSn) ? parseInt(baseSn, 10) : NaN;
+      return { name, idx, sn, isDashOne, baseSn, baseNum };
+    })
+    .sort((a, b) => {
+      const aNum = !Number.isNaN(a.baseNum);
+      const bNum = !Number.isNaN(b.baseNum);
+      if (aNum && bNum) {
+        if (a.baseNum !== b.baseNum) return a.baseNum - b.baseNum;
+      } else if (aNum !== bNum) {
+        // Numbers before non-numbers
+        return aNum ? -1 : 1;
+      } else {
+        const c = a.baseSn.localeCompare(b.baseSn);
+        if (c !== 0) return c;
+      }
+      // Same base; non -1 first, then -1
+      if (a.isDashOne !== b.isDashOne) return a.isDashOne ? 1 : -1;
+      // Stable fallback
+      return a.idx - b.idx;
+    })
+    .map((x) => x.name);
+}
+
 function parseCpSections(lines, startIndex) {
   const results = [];
   const re = /<(\d+)>\s+([0-9]+(?:\.[0-9]+)?)\s+([^\s<]+)/g;
@@ -98,7 +133,7 @@ async function main() {
     process.exit(1);
   }
 
-  const txtFiles = listTxtFiles(srcDir);
+  const txtFiles = sortBySnWithDashOne(listTxtFiles(srcDir));
   const total = txtFiles.length;
   if (total === 0) {
     console.log('No TXT files found. Nothing to do.');
