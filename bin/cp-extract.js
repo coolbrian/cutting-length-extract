@@ -177,10 +177,50 @@ async function main() {
       continue;
     }
 
-    const fmtSn = (v) => (v.includes('-') ? `'${v}` : v);
-    const fmtOd = (v) => (v.includes('/') || v.includes('.') ? `'${v}` : v);
+    const fmtSn = (v) => v;
+    const toDecimalOd = (v) => {
+      let s = String(v).trim();
+      s = s.replace(/"/g, '');
+      if (s.includes('/') && s.includes('.')) {
+        const dot = s.indexOf('.');
+        const wholeStr = s.slice(0, dot);
+        const fracStr = s.slice(dot + 1);
+        const whole = /^\d+$/.test(wholeStr) ? parseInt(wholeStr, 10) : 0;
+        const m = fracStr.match(/^(\d+)\/(\d+)$/);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          const den = parseInt(m[2], 10) || 1;
+          const val = whole + num / den;
+          return String(val);
+        }
+        // Fallback: try parsing float
+        const f = Number(s);
+        if (!Number.isNaN(f)) return String(f);
+        return s;
+      }
+      if (s.includes('/')) {
+        const m = s.match(/^(\d+)\/(\d+)$/);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          const den = parseInt(m[2], 10) || 1;
+          return String(num / den);
+        }
+        const parts = s.split('/');
+        if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+          const num = parseInt(parts[0], 10);
+          const den = parseInt(parts[1], 10) || 1;
+          return String(num / den);
+        }
+        return s;
+      }
+      if (s.includes('.')) {
+        const f = Number(s);
+        if (!Number.isNaN(f)) return String(f);
+      }
+      return s;
+    };
     for (const s of sections) {
-      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, fmtOd(s.pieceOD)]);
+      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD)]);
     }
   }
 
