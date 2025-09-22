@@ -35,7 +35,11 @@ function parseCpSections(lines, startIndex) {
       if (m.index !== pos) {
         const gap = line.slice(pos, m.index);
         if (gap.trim() !== '') {
-          throw new Error(`Malformed CP line: unexpected text between sections: '${gap}' in line: '${raw}'`);
+          console.warn(
+            `Warning: CP section not followed by ' <' within the same line. Trailing text ignored. Line: '${raw}'`
+          );
+          // Stop parsing further sections on this line; keep what we already parsed.
+          break;
         }
       }
       const pieceIndex = m[1];
@@ -45,8 +49,13 @@ function parseCpSections(lines, startIndex) {
       pos = re.lastIndex;
     }
     const tail = line.slice(pos);
-    if (!hadAny || tail.trim() !== '') {
-      throw new Error(`Malformed CP line: could not fully parse: '${raw}'`);
+    if (!hadAny) {
+      throw new Error(`Malformed CP line: could not parse any CP section: '${raw}'`);
+    }
+    if (tail.trim() !== '') {
+      console.warn(
+        `Warning: CP section not followed by ' <' within the same line. Trailing text ignored. Line: '${raw}'`
+      );
     }
   }
 
@@ -116,8 +125,8 @@ async function main() {
 
     const start = findCpStart(lines);
     if (start < 0) {
-      console.error(`Error: CP paragraph not found in '${name}'`);
-      process.exit(1);
+      console.warn(`Warning: CP paragraph not found in '${name}', skipping.`);
+      continue;
     }
 
     let sections;
@@ -129,8 +138,8 @@ async function main() {
     }
 
     if (sections.length === 0) {
-      console.error(`Error: no CP sections found in '${name}'`);
-      process.exit(1);
+      console.warn(`Warning: no CP sections found in '${name}', skipping.`);
+      continue;
     }
 
     for (const s of sections) {
@@ -147,4 +156,3 @@ main().catch((err) => {
   console.error(err && err.stack ? err.stack : String(err));
   process.exit(1);
 });
-
