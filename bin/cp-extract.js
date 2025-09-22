@@ -177,8 +177,10 @@ async function main() {
       continue;
     }
 
+    const fmtSn = (v) => (v.includes('-') ? `'${v}` : v);
+    const fmtOd = (v) => (v.includes('/') || v.includes('.') ? `'${v}` : v);
     for (const s of sections) {
-      out.push([sn, s.pieceIndex, s.pieceLength, s.pieceOD]);
+      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, fmtOd(s.pieceOD)]);
     }
   }
 
