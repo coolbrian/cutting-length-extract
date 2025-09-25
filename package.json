@@ -1,0 +1,13 @@
+{
+  "name": "text-extract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Extract text from PDFs in a directory using pdftotext",
+  "bin": {
+    "text-extract": "bin/text-extract.js",
+    "cp-extract": "bin/cp-extract.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
