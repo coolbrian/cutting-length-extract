@@ -23,29 +23,34 @@ function extractSn(fileName) {
   return sn;
 }
 
-function sortBySnWithDashOne(names) {
+function sortBySnWithDashSuffix(names) {
   return names
     .map((name, idx) => {
       const sn = extractSn(name);
-      const isDashOne = /-1$/.test(sn);
-      const baseSn = isDashOne ? sn.replace(/-1$/, '') : sn;
+      const m = sn.match(/^(.*?)-(\d+)$/);
+      const hasDash = !!m;
+      const baseSn = hasDash ? m[1] : sn;
+      const dashNum = hasDash ? parseInt(m[2], 10) : null;
       const baseNum = /^\d+$/.test(baseSn) ? parseInt(baseSn, 10) : NaN;
-      return { name, idx, sn, isDashOne, baseSn, baseNum };
+      return { name, idx, sn, hasDash, baseSn, baseNum, dashNum };
     })
     .sort((a, b) => {
-      const aNum = !Number.isNaN(a.baseNum);
-      const bNum = !Number.isNaN(b.baseNum);
-      if (aNum && bNum) {
+      const aIsNum = !Number.isNaN(a.baseNum);
+      const bIsNum = !Number.isNaN(b.baseNum);
+      if (aIsNum && bIsNum) {
         if (a.baseNum !== b.baseNum) return a.baseNum - b.baseNum;
-      } else if (aNum !== bNum) {
+      } else if (aIsNum !== bIsNum) {
         // Numbers before non-numbers
-        return aNum ? -1 : 1;
+        return aIsNum ? -1 : 1;
       } else {
         const c = a.baseSn.localeCompare(b.baseSn);
         if (c !== 0) return c;
       }
-      // Same base; non -1 first, then -1
-      if (a.isDashOne !== b.isDashOne) return a.isDashOne ? 1 : -1;
+      // Same base; base (no -suffix) first, then by suffix integer ascending
+      if (a.hasDash !== b.hasDash) return a.hasDash ? 1 : -1;
+      if (a.hasDash && b.hasDash) {
+        return (a.dashNum || 0) - (b.dashNum || 0);
+      }
       // Stable fallback
       return a.idx - b.idx;
     })
@@ -56,7 +61,8 @@ function parseCpSections(lines, startIndex) {
   const results = [];
   const re = /<(\d+)>\s+([0-9]+(?:\.[0-9]+)?)\s+([^\s<]+)/g;
 
-  for (let i = startIndex; i < lines.length; i++) {
+  let i = startIndex;
+  for (; i < lines.length; i++) {
     const raw = lines[i];
     const line = raw.trim();
     if (!line.startsWith('<')) break; // end of CP groups per spec
@@ -70,11 +76,7 @@ function parseCpSections(lines, startIndex) {
       if (m.index !== pos) {
         const gap = line.slice(pos, m.index);
         if (gap.trim() !== '') {
-          console.warn(
-            `Warning: CP section not followed by ' <' within the same line. Trailing text ignored. Line: '${raw}'`
-          );
-          // Stop parsing further sections on this line; keep what we already parsed.
-          break;
+          throw new Error(`Malformed CP line: unexpected text between sections: '${raw}'`);
         }
       }
       const pieceIndex = m[1];
@@ -83,18 +85,67 @@ function parseCpSections(lines, startIndex) {
       results.push({ pieceIndex, pieceLength, pieceOD });
       pos = re.lastIndex;
     }
-    const tail = line.slice(pos);
     if (!hadAny) {
       throw new Error(`Malformed CP line: could not parse any CP section: '${raw}'`);
     }
-    if (tail.trim() !== '') {
-      console.warn(
-        `Warning: CP section not followed by ' <' within the same line. Trailing text ignored. Line: '${raw}'`
-      );
+    const tail = line.slice(pos);
+    // Ignore any trailing text after the last valid CP section on the line
+    // Example: "<9> 586 3 CHHW-15215-3"-S1P1-C75" -> keep the section, ignore trailing
+  }
+
+  return { sections: results, endIndex: i };
+}
+
+function findPartNumbers(lines, startIndex, pieceIndexes) {
+  const result = new Map();
+  const counts = new Map();
+  for (const idx of pieceIndexes) counts.set(idx, 0);
+
+  for (let i = startIndex; i < lines.length; i++) {
+    const cur = lines[i] || '';
+    const next = i + 1 < lines.length ? lines[i + 1] || '' : '';
+    for (const pIdx of pieceIndexes) {
+      // Skip if already found more than once; we'll error after the scan
+      let searchPos = 0;
+      const tag = `<${pIdx}>`;
+      while (true) {
+        const k = cur.indexOf(tag, searchPos);
+        if (k < 0) break;
+        searchPos = k + tag.length;
+        const after = cur.slice(k + tag.length);
+        let part = null;
+        const m1 = after.match(/^\s*(\d+)/);
+        if (m1) {
+          part = m1[1];
+        } else {
+          const m2 = (next || '').replace(/^\s+/, '').match(/^(\d+)/);
+          if (m2) part = m2[1];
+        }
+        if (part !== null) {
+          if (!/^\d+$/.test(part)) {
+            throw new Error(`Invalid Part No. for <${pIdx}>: '${part}' is not an integer.`);
+          }
+          const c = counts.get(pIdx) || 0;
+          counts.set(pIdx, c + 1);
+          if (c === 0) result.set(pIdx, part);
+        }
+      }
     }
   }
 
-  return results;
+  // Validate matches per pieceIndex
+  for (const pIdx of pieceIndexes) {
+    const c = counts.get(pIdx) || 0;
+    if (c === 0) {
+      console.warn(`Warning: Part No. not found for <${pIdx}>`);
+      continue;
+    }
+    if (c > 1) {
+      throw new Error(`Multiple Part No. entries found for <${pIdx}>`);
+    }
+  }
+
+  return result;
 }
 
 function findCpStart(lines) {
@@ -133,19 +184,19 @@ async function main() {
     process.exit(1);
   }
 
-  const txtFiles = sortBySnWithDashOne(listTxtFiles(srcDir));
+  const txtFiles = sortBySnWithDashSuffix(listTxtFiles(srcDir));
   const total = txtFiles.length;
   if (total === 0) {
     console.log('No TXT files found. Nothing to do.');
     return;
   }
 
-  // Output CSV named as "$srcDir.csv" relative to CWD
-  const outputCsvName = `${srcDirArg.replace(/\/+$/, '')}.csv`;
-  const outputCsvPath = path.resolve(process.cwd(), outputCsvName);
+  // Output TSV named as "$srcDir.tsv" relative to CWD
+  const outputTsvName = `${srcDirArg.replace(/\/+$/, '')}.tsv`;
+  const outputTsvPath = path.resolve(process.cwd(), outputTsvName);
 
   const out = [];
-  out.push(['流水號', '料號', '長度', '管徑']);
+  out.push(['流水號', '料號', '長度', '管徑', 'Part No.']);
 
   for (let i = 0; i < txtFiles.length; i++) {
     const name = txtFiles[i];
@@ -164,17 +215,29 @@ async function main() {
       continue;
     }
 
-    let sections;
+    let sectionsWrapped;
     try {
-      sections = parseCpSections(lines, start);
+      sectionsWrapped = parseCpSections(lines, start);
     } catch (err) {
       console.error(`Error parsing '${name}': ${err.message}`);
       process.exit(1);
     }
+    const sections = sectionsWrapped.sections;
+    const afterCpIndex = sectionsWrapped.endIndex;
 
     if (sections.length === 0) {
       console.warn(`Warning: no CP sections found in '${name}', skipping.`);
       continue;
+    }
+
+    // Collect unique piece indexes
+    const pieceIndexes = Array.from(new Set(sections.map((s) => s.pieceIndex)));
+    let partMap;
+    try {
+      partMap = findPartNumbers(lines, afterCpIndex, pieceIndexes);
+    } catch (err) {
+      console.error(`Error parsing Part No. in '${name}': ${err.message}`);
+      process.exit(1);
     }
 
     const fmtSn = (v) => v;
@@ -220,13 +283,14 @@ async function main() {
       return s;
     };
     for (const s of sections) {
-      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD)]);
+      const pno = partMap.get(s.pieceIndex) ?? 'NA';
+      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno]);
     }
   }
 
-  // Write CSV
-  const csv = out.map((row) => row.join(',')).join('\n') + '\n';
-  await fsp.writeFile(outputCsvPath, csv, 'utf8');
+  // Write TSV
+  const tsv = out.map((row) => row.join('\t')).join('\n') + '\n';
+  await fsp.writeFile(outputTsvPath, tsv, 'utf8');
 }
 
 main().catch((err) => {
