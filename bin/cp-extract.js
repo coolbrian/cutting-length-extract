@@ -98,52 +98,42 @@ function parseCpSections(lines, startIndex) {
 
 function findPartNumbers(lines, startIndex, pieceIndexes, onMissingWarning) {
   const result = new Map();
-  const counts = new Map();
-  for (const idx of pieceIndexes) counts.set(idx, 0);
+  const content = lines.slice(startIndex).join('\n');
 
-  for (let i = startIndex; i < lines.length; i++) {
-    const cur = lines[i] || '';
-    const next = i + 1 < lines.length ? lines[i + 1] || '' : '';
-    for (const pIdx of pieceIndexes) {
-      // Skip if already found more than once; we'll error after the scan
-      let searchPos = 0;
-      const tag = `<${pIdx}>`;
-      while (true) {
-        const k = cur.indexOf(tag, searchPos);
-        if (k < 0) break;
-        searchPos = k + tag.length;
-        const after = cur.slice(k + tag.length);
-        let part = null;
-        const m1 = after.match(/^\s*(\d+)/);
-        if (m1) {
-          part = m1[1];
-        } else {
-          const m2 = (next || '').replace(/^\s+/, '').match(/^(\d+)/);
-          if (m2) part = m2[1];
-        }
-        if (part !== null) {
-          if (!/^\d+$/.test(part)) {
-            throw new Error(`Invalid Part No. for <${pIdx}>: '${part}' is not an integer.`);
-          }
-          const c = counts.get(pIdx) || 0;
-          counts.set(pIdx, c + 1);
-          if (c === 0) result.set(pIdx, part);
-        }
-      }
-    }
-  }
-
-  // Validate matches per pieceIndex
   for (const pIdx of pieceIndexes) {
-    const c = counts.get(pIdx) || 0;
-    if (c === 0) {
+    // Find tags like <pIdx> allowing whitespace/newlines between tokens
+    const tagRe = new RegExp(`<\\s*${pIdx}\\s*>`, 'g');
+    let m;
+    let foundCount = 0;
+    let firstPart = null;
+    while ((m = tagRe.exec(content)) !== null) {
+      const after = content.slice(m.index + m[0].length);
+      const tok = after.match(/^\s*([^\s]+)/);
+      if (!tok) {
+        // No following token; treat as missing here and continue searching for another tag
+        continue;
+      }
+      const token = tok[1];
+      const numMatch = token.match(/^(\d+)/);
+      if (!numMatch) {
+        // Found a tag, but next token is not an integer: this is invalid per spec
+        throw new Error(`Invalid Part No. for <${pIdx}>: '${token}' is not an integer.`);
+      }
+      const part = numMatch[1];
+      foundCount++;
+      if (foundCount === 1) firstPart = part;
+      if (foundCount > 1) break; // we can exit early; will error below
+    }
+
+    if (foundCount === 0) {
       if (typeof onMissingWarning === 'function') onMissingWarning(pIdx);
       else console.warn(`Warning: Part No. not found for <${pIdx}>`);
       continue;
     }
-    if (c > 1) {
+    if (foundCount > 1) {
       throw new Error(`Multiple Part No. entries found for <${pIdx}>`);
     }
+    result.set(pIdx, firstPart);
   }
 
   return result;
