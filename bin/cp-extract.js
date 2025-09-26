@@ -210,7 +210,7 @@ async function main() {
   const outputLogPath = `${outputTsvPath}.log`;
 
   const out = [];
-  out.push(['流水號', '料號', '長度', '管徑', 'Part No.', 'Remark']);
+  out.push(['流水號', '料號', '長度', '管徑', 'Part No.', 'PartID', 'Remark']);
   const warnings = [];
 
   for (let i = 0; i < txtFiles.length; i++) {
@@ -308,7 +308,8 @@ async function main() {
     };
     for (const s of sections) {
       const pno = partMap.get(s.pieceIndex) ?? 'NA';
-      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno, remarkArg]);
+      const partId = `${remarkArg}--${fmtSn(sn)}--${pno}`;
+      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno, partId, remarkArg]);
     }
   }
 
