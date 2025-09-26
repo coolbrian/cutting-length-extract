@@ -1,13 +1,13 @@
-Write a node.js app, 'cp-extract', that takes an input directory ($srcDir), and parses the text in each txt file to a single TSV file.
+Write a node.js app, 'cp-extract', that takes an input directory ($srcDir), along with a remark string ($remark) and parses the text in each txt file to a single TSV file.
 
-- The output TSV file ($outTsv) is named as "$srcDir.tsv".
+- The output TSV file ($outTsv) is named as "$srcDir-cp.tsv".
 - $srcDir contains a list of txt files, each named in the pattern: $sn.$name.txt.
 - Sort the txt files based on $sn. Treat $sn as integer.  If $sn contains '-$integer', put it after $sn.
 - The text in interest in txt file has the pattern described in the "CP Text Pattern" section below.
 - The headers in the TSV:
-  "流水號","料號","長度","管徑","Part No."
+  "流水號","料號","長度","管徑","Part No.","Remark"
 - Entries in the TSV file are in the following format:
-  $sn,$pieceIndex,$pieceLength,$pieceOD,$partNo
+  $sn,$pieceIndex,$pieceLength,$pieceOD,$partNo,$remark
 - When processing, output msg:
   Processing $index/$totalNumberOfTxtFiles: $txtFile ...
 
@@ -43,3 +43,29 @@ If any "<$pieceIndex>$partNo" combo is not found for a $pieceIndex, report the e
 After finding a matching combo, go through all the remaining lines and try to find the next match.
 If a second matched combo is found, report the error and abort.
 
+If $partNo is not found for a $pieceIndex, issue a warning about it and keep the warnings in log ($srcDir-cp.tsv.log).
+
+There are some quirky "<$pieceIndex>$partNo" patterns. Handle these cases as well.
+Quirky Pattern #1
+-----------------
+<
+5
+>
+1
+-----------------
+  * The above pattern shall be parsed as : <5>1
+    -> $pieceIndex=5 $partNo=1
+
+Quirky Pattern #2
+-----------------
+<
+1
+0
+>
+1
+-----------------
+  * The above pattern shall be parsed as : <10>1
+    -> $pieceIndex=10 $partNo=1
+  * Try to find the enclosing '>' for the $partNo. Max of 3-digit $partNo is allowed.
+
+Please note that $partNo is always an integer.  If a non-digit is found during $partNo detection, discard it.
