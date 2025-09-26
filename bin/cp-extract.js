@@ -6,7 +6,7 @@ const fsp = fs.promises;
 const path = require('path');
 
 function usage() {
-  console.error('Usage: cp-extract <srcDir>');
+  console.error('Usage: cp-extract <srcDir> <remark>');
 }
 
 function listTxtFiles(dir) {
@@ -178,7 +178,8 @@ function findCpStart(lines) {
 
 async function main() {
   const srcDirArg = process.argv[2];
-  if (!srcDirArg) {
+  const remarkArg = (process.argv.length > 3) ? process.argv.slice(3).join(' ') : undefined;
+  if (!srcDirArg || typeof remarkArg === 'undefined') {
     usage();
     process.exit(1);
   }
@@ -209,7 +210,7 @@ async function main() {
   const outputLogPath = `${outputTsvPath}.log`;
 
   const out = [];
-  out.push(['流水號', '料號', '長度', '管徑', 'Part No.']);
+  out.push(['流水號', '料號', '長度', '管徑', 'Part No.', 'Remark']);
   const warnings = [];
 
   for (let i = 0; i < txtFiles.length; i++) {
@@ -307,7 +308,7 @@ async function main() {
     };
     for (const s of sections) {
       const pno = partMap.get(s.pieceIndex) ?? 'NA';
-      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno]);
+      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno, remarkArg]);
     }
   }
 
