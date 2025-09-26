@@ -96,7 +96,7 @@ function parseCpSections(lines, startIndex) {
   return { sections: results, endIndex: i };
 }
 
-function findPartNumbers(lines, startIndex, pieceIndexes) {
+function findPartNumbers(lines, startIndex, pieceIndexes, onMissingWarning) {
   const result = new Map();
   const counts = new Map();
   for (const idx of pieceIndexes) counts.set(idx, 0);
@@ -137,7 +137,8 @@ function findPartNumbers(lines, startIndex, pieceIndexes) {
   for (const pIdx of pieceIndexes) {
     const c = counts.get(pIdx) || 0;
     if (c === 0) {
-      console.warn(`Warning: Part No. not found for <${pIdx}>`);
+      if (typeof onMissingWarning === 'function') onMissingWarning(pIdx);
+      else console.warn(`Warning: Part No. not found for <${pIdx}>`);
       continue;
     }
     if (c > 1) {
@@ -191,12 +192,14 @@ async function main() {
     return;
   }
 
-  // Output TSV named as "$srcDir.tsv" relative to CWD
-  const outputTsvName = `${srcDirArg.replace(/\/+$/, '')}.tsv`;
+  // Output TSV named as "$srcDir-cp.tsv" relative to CWD
+  const outputTsvName = `${srcDirArg.replace(/\/+$/, '')}-cp.tsv`;
   const outputTsvPath = path.resolve(process.cwd(), outputTsvName);
+  const outputLogPath = `${outputTsvPath}.log`;
 
   const out = [];
   out.push(['流水號', '料號', '長度', '管徑', 'Part No.']);
+  const warnings = [];
 
   for (let i = 0; i < txtFiles.length; i++) {
     const name = txtFiles[i];
@@ -234,7 +237,16 @@ async function main() {
     const pieceIndexes = Array.from(new Set(sections.map((s) => s.pieceIndex)));
     let partMap;
     try {
-      partMap = findPartNumbers(lines, afterCpIndex, pieceIndexes);
+      partMap = findPartNumbers(
+        lines,
+        afterCpIndex,
+        pieceIndexes,
+        (pieceIdx) => {
+          const msg = `Part No. not found for <${pieceIdx}> in ${name}`;
+          console.warn(`Warning: ${msg}`);
+          warnings.push(msg);
+        }
+      );
     } catch (err) {
       console.error(`Error parsing Part No. in '${name}': ${err.message}`);
       process.exit(1);
@@ -291,6 +303,10 @@ async function main() {
   // Write TSV
   const tsv = out.map((row) => row.join('\t')).join('\n') + '\n';
   await fsp.writeFile(outputTsvPath, tsv, 'utf8');
+
+  // Write warnings log (always create the log file)
+  const body = warnings.length > 0 ? warnings.join('\n') + '\n' : '';
+  await fsp.writeFile(outputLogPath, body, 'utf8');
 }
 
 main().catch((err) => {
