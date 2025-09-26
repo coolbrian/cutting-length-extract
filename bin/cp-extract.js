@@ -100,29 +100,50 @@ function findPartNumbers(lines, startIndex, pieceIndexes, onMissingWarning) {
   const result = new Map();
   const content = lines.slice(startIndex).join('\n');
 
+  // Scan for all tags like <...> where ... is whitespace/newlines and digits
+  const occ = [];
+  const tagRe = /<([\s\d]+)>/g; // capture digits with optional whitespace/newlines
+  let m;
+  while ((m = tagRe.exec(content)) !== null) {
+    const rawInside = m[1];
+    const digits = (rawInside.match(/\d/g) || []).join('');
+    if (digits.length === 0) continue; // skip non-digit tags
+    const end = m.index + m[0].length; // position right after '>'
+    occ.push({ digits, end });
+  }
+
   for (const pIdx of pieceIndexes) {
-    // Find tags like <pIdx> allowing whitespace/newlines between tokens
-    const tagRe = new RegExp(`<\\s*${pIdx}\\s*>`, 'g');
-    let m;
     let foundCount = 0;
     let firstPart = null;
-    while ((m = tagRe.exec(content)) !== null) {
-      const after = content.slice(m.index + m[0].length);
-      const tok = after.match(/^\s*([^\s]+)/);
-      if (!tok) {
-        // No following token; treat as missing here and continue searching for another tag
-        continue;
+
+    for (const o of occ) {
+      if (o.digits !== String(pIdx)) continue;
+
+      const after = content.slice(o.end);
+      // Skip whitespace/newlines, then capture leading digits as Part No.
+      const mTok = after.match(/^\s*(\d+)/);
+      if (!mTok) {
+        // If the very next non-whitespace token doesn't start with a digit, discard non-digit and keep scanning
+        const mAny = after.match(/^\s*([^\s]+)/);
+        if (mAny) {
+          const token = mAny[1];
+          const num = token.replace(/\D+/g, '').slice(0, 3);
+          if (num.length === 0) {
+            // No digits at all -> treat as missing and continue searching
+            continue;
+          }
+          foundCount++;
+          if (foundCount === 1) firstPart = num;
+          if (foundCount > 1) break;
+        } else {
+          continue;
+        }
+      } else {
+        const num = mTok[1].slice(0, 3); // cap to max 3 digits
+        foundCount++;
+        if (foundCount === 1) firstPart = num;
+        if (foundCount > 1) break;
       }
-      const token = tok[1];
-      const numMatch = token.match(/^(\d+)/);
-      if (!numMatch) {
-        // Found a tag, but next token is not an integer: this is invalid per spec
-        throw new Error(`Invalid Part No. for <${pIdx}>: '${token}' is not an integer.`);
-      }
-      const part = numMatch[1];
-      foundCount++;
-      if (foundCount === 1) firstPart = part;
-      if (foundCount > 1) break; // we can exit early; will error below
     }
 
     if (foundCount === 0) {
