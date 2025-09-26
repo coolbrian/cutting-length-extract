@@ -5,9 +5,9 @@ Write a node.js app, 'cp-extract', that takes an input directory ($srcDir), alon
 - Sort the txt files based on $sn. Treat $sn as integer.  If $sn contains '-$integer', put it after $sn.
 - The text in interest in txt file has the pattern described in the "CP Text Pattern" section below.
 - The headers in the TSV:
-  "流水號","料號","長度","管徑","Part No.","Remark"
+  "流水號","料號","長度","管徑","Part No.","PartID","Remark"
 - Entries in the TSV file are in the following format:
-  $sn,$pieceIndex,$pieceLength,$pieceOD,$partNo,$remark
+  $sn,$pieceIndex,$pieceLength,$pieceOD,$partNo,$partId,$remark
 - When processing, output msg:
   Processing $index/$totalNumberOfTxtFiles: $txtFile ...
 
@@ -69,3 +69,5 @@ Quirky Pattern #2
   * Try to find the enclosing '>' for the $partNo. Max of 3-digit $partNo is allowed.
 
 Please note that $partNo is always an integer.  If a non-digit is found during $partNo detection, discard it.
+
+$partId is "$remark--$sn--$partNo"
