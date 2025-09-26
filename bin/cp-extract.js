@@ -303,10 +303,12 @@ async function main() {
   // Write TSV
   const tsv = out.map((row) => row.join('\t')).join('\n') + '\n';
   await fsp.writeFile(outputTsvPath, tsv, 'utf8');
+  console.log(`<OUTPUT> Wrote TSV: ${outputTsvPath}`);
 
   // Write warnings log (always create the log file)
   const body = warnings.length > 0 ? warnings.join('\n') + '\n' : '';
   await fsp.writeFile(outputLogPath, body, 'utf8');
+  console.log(`<OUTPUT> Wrote log: ${outputLogPath}`);
 }
 
 main().catch((err) => {
