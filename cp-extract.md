@@ -1,13 +1,20 @@
-Write a node.js app, 'cp-extract', that takes an input directory ($srcDir), along with a remark string ($remark) and parses the text in each txt file to a single TSV file.
+Write a node.js app, 'cp-extract', that extracts the CP (Cutting Plan of pipes) within the files.
+
+The app takes pairs of ($srcDir,$prj) as arguments. For example:
+ node bin/cp-extract.js test-dir1,製程區 test-dir2,廢處理區
+
+Concatenate the names of input directories for the combined output TSV file ($outTsv).
+ - Ex. input directories: [a, b, c]
+   -> $outTsv: 999.COMBO_CP--a+b+c.tsv
 
 - The output TSV file ($outTsv) is named as "$srcDir-cp.tsv".
 - $srcDir contains a list of txt files, each named in the pattern: $sn.$name.txt.
 - Sort the txt files based on $sn. Treat $sn as integer.  If $sn contains '-$integer', put it after $sn.
 - The text in interest in txt file has the pattern described in the "CP Text Pattern" section below.
 - The headers in the TSV:
-  "流水號","料號","長度","管徑","Part No.","PartID","Remark"
+  "流水號","料號","長度","管徑","Part No.","PartID","案號"
 - Entries in the TSV file are in the following format:
-  $sn,$pieceIndex,$pieceLength,$pieceOD,$partNo,$partId,$remark
+  $sn,$pieceIndex,$pieceLength,$pieceOD,$partNo,$partId,$prj
 - When processing, output msg:
   Processing $index/$totalNumberOfTxtFiles: $txtFile ...
 
@@ -70,4 +77,4 @@ Quirky Pattern #2
 
 Please note that $partNo is always an integer.  If a non-digit is found during $partNo detection, discard it.
 
-$partId is "$remark--$sn--$partNo"
+$partId is "$prj--$sn--$partNo"

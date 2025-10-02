@@ -6,7 +6,7 @@ const fsp = fs.promises;
 const path = require('path');
 
 function usage() {
-  console.error('Usage: cp-extract <srcDir> <remark>');
+  console.error('Usage: cp-extract <srcDir,prj> [<srcDir,prj> ...]');
 }
 
 function listTxtFiles(dir) {
@@ -177,139 +177,163 @@ function findCpStart(lines) {
 }
 
 async function main() {
-  const srcDirArg = process.argv[2];
-  const remarkArg = (process.argv.length > 3) ? process.argv.slice(3).join(' ') : undefined;
-  if (!srcDirArg || typeof remarkArg === 'undefined') {
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
     usage();
     process.exit(1);
   }
 
-  const srcDir = path.resolve(process.cwd(), srcDirArg);
-  let stat;
-  try {
-    stat = fs.statSync(srcDir);
-  } catch (e) {
-    console.error(`Error: directory not found: ${srcDir}`);
-    process.exit(1);
-  }
-  if (!stat.isDirectory()) {
-    console.error(`Error: not a directory: ${srcDir}`);
-    process.exit(1);
+  // Parse pairs: <srcDir,prj>
+  const pairs = [];
+  for (const raw of args) {
+    const idx = raw.indexOf(',');
+    if (idx === -1) {
+      console.error(`Error: invalid argument '${raw}'. Expected '<srcDir,prj>'.`);
+      process.exit(1);
+    }
+    const srcDirArg = raw.slice(0, idx).trim();
+    const prj = raw.slice(idx + 1).trim();
+    if (!srcDirArg || !prj) {
+      console.error(`Error: invalid argument '${raw}'. Both srcDir and prj are required.`);
+      process.exit(1);
+    }
+    const srcDirAbs = path.resolve(process.cwd(), srcDirArg);
+    let stat;
+    try {
+      stat = fs.statSync(srcDirAbs);
+    } catch (e) {
+      console.error(`Error: directory not found: ${srcDirAbs}`);
+      process.exit(1);
+    }
+    if (!stat.isDirectory()) {
+      console.error(`Error: not a directory: ${srcDirAbs}`);
+      process.exit(1);
+    }
+    pairs.push({ srcDirArg, srcDirAbs, prj });
   }
 
-  const txtFiles = sortBySnWithDashSuffix(listTxtFiles(srcDir));
-  const total = txtFiles.length;
-  if (total === 0) {
-    console.log('No TXT files found. Nothing to do.');
-    return;
+  // Determine output filename
+  let outputTsvName;
+  if (pairs.length === 1) {
+    // Per spec: "$srcDir-cp.tsv"
+    outputTsvName = `${pairs[0].srcDirArg.replace(/\/+$/, '')}-cp.tsv`;
+  } else {
+    const names = pairs.map((p) => path.basename(p.srcDirArg.replace(/\/+$/, '')));
+    outputTsvName = `999.COMBO_CP--${names.join('+')}.tsv`;
   }
-
-  // Output TSV named as "$srcDir-cp.tsv" relative to CWD
-  const outputTsvName = `${srcDirArg.replace(/\/+$/, '')}-cp.tsv`;
   const outputTsvPath = path.resolve(process.cwd(), outputTsvName);
   const outputLogPath = `${outputTsvPath}.log`;
 
   const out = [];
-  out.push(['流水號', '料號', '長度', '管徑', 'Part No.', 'PartID', 'Remark']);
+  out.push(['流水號', '料號', '長度', '管徑', 'Part No.', 'PartID', '案號']);
   const warnings = [];
 
-  for (let i = 0; i < txtFiles.length; i++) {
-    const name = txtFiles[i];
-    const base = path.basename(name, path.extname(name));
-    const sn = base.split('.')[0]; // $sn from file name pattern $sn.$name.txt
-    const filePath = path.join(srcDir, name);
-
-    console.log(`Processing ${i + 1}/${total}: ${name} ...`);
-
-    const content = await fsp.readFile(filePath, 'utf8');
-    const lines = content.split(/\r\n|\n|\r/);
-
-    const start = findCpStart(lines);
-    if (start < 0) {
-      console.warn(`Warning: CP paragraph not found in '${name}', skipping.`);
+  for (const { srcDirArg, srcDirAbs, prj } of pairs) {
+    const txtFiles = sortBySnWithDashSuffix(listTxtFiles(srcDirAbs));
+    const total = txtFiles.length;
+    if (total === 0) {
+      console.log(`No TXT files found in '${srcDirArg}'. Skipping.`);
       continue;
     }
 
-    let sectionsWrapped;
-    try {
-      sectionsWrapped = parseCpSections(lines, start);
-    } catch (err) {
-      console.error(`Error parsing '${name}': ${err.message}`);
-      process.exit(1);
-    }
-    const sections = sectionsWrapped.sections;
-    const afterCpIndex = sectionsWrapped.endIndex;
+    for (let i = 0; i < txtFiles.length; i++) {
+      const name = txtFiles[i];
+      const base = path.basename(name, path.extname(name));
+      const sn = base.split('.')[0]; // $sn from file name pattern $sn.$name.txt
+      const filePath = path.join(srcDirAbs, name);
 
-    if (sections.length === 0) {
-      console.warn(`Warning: no CP sections found in '${name}', skipping.`);
-      continue;
-    }
+      console.log(`Processing ${i + 1}/${total}: ${name} ...`);
 
-    // Collect unique piece indexes
-    const pieceIndexes = Array.from(new Set(sections.map((s) => s.pieceIndex)));
-    let partMap;
-    try {
-      partMap = findPartNumbers(
-        lines,
-        afterCpIndex,
-        pieceIndexes,
-        (pieceIdx) => {
-          const msg = `Part No. not found for <${pieceIdx}> in ${name}`;
-          console.warn(`Warning: ${msg}`);
-          warnings.push(msg);
+      const content = await fsp.readFile(filePath, 'utf8');
+      const lines = content.split(/\r\n|\n|\r/);
+
+      const start = findCpStart(lines);
+      if (start < 0) {
+        console.warn(`Warning: CP paragraph not found in '${name}', skipping.`);
+        continue;
+      }
+
+      let sectionsWrapped;
+      try {
+        sectionsWrapped = parseCpSections(lines, start);
+      } catch (err) {
+        console.error(`Error parsing '${name}': ${err.message}`);
+        process.exit(1);
+      }
+      const sections = sectionsWrapped.sections;
+      const afterCpIndex = sectionsWrapped.endIndex;
+
+      if (sections.length === 0) {
+        console.warn(`Warning: no CP sections found in '${name}', skipping.`);
+        continue;
+      }
+
+      // Collect unique piece indexes
+      const pieceIndexes = Array.from(new Set(sections.map((s) => s.pieceIndex)));
+      let partMap;
+      try {
+        partMap = findPartNumbers(
+          lines,
+          afterCpIndex,
+          pieceIndexes,
+          (pieceIdx) => {
+            const msg = `Part No. not found for <${pieceIdx}> in ${name}`;
+            console.warn(`Warning: ${msg}`);
+            warnings.push(msg);
+          }
+        );
+      } catch (err) {
+        console.error(`Error parsing Part No. in '${name}': ${err.message}`);
+        process.exit(1);
+      }
+
+      const fmtSn = (v) => v;
+      const toDecimalOd = (v) => {
+        let s = String(v).trim();
+        s = s.replace(/"/g, '');
+        if (s.includes('/') && s.includes('.')) {
+          const dot = s.indexOf('.');
+          const wholeStr = s.slice(0, dot);
+          const fracStr = s.slice(dot + 1);
+          const whole = /^\d+$/.test(wholeStr) ? parseInt(wholeStr, 10) : 0;
+          const m = fracStr.match(/^(\d+)\/(\d+)$/);
+          if (m) {
+            const num = parseInt(m[1], 10);
+            const den = parseInt(m[2], 10) || 1;
+            const val = whole + num / den;
+            return String(val);
+          }
+          // Fallback: try parsing float
+          const f = Number(s);
+          if (!Number.isNaN(f)) return String(f);
+          return s;
         }
-      );
-    } catch (err) {
-      console.error(`Error parsing Part No. in '${name}': ${err.message}`);
-      process.exit(1);
-    }
-
-    const fmtSn = (v) => v;
-    const toDecimalOd = (v) => {
-      let s = String(v).trim();
-      s = s.replace(/"/g, '');
-      if (s.includes('/') && s.includes('.')) {
-        const dot = s.indexOf('.');
-        const wholeStr = s.slice(0, dot);
-        const fracStr = s.slice(dot + 1);
-        const whole = /^\d+$/.test(wholeStr) ? parseInt(wholeStr, 10) : 0;
-        const m = fracStr.match(/^(\d+)\/(\d+)$/);
-        if (m) {
-          const num = parseInt(m[1], 10);
-          const den = parseInt(m[2], 10) || 1;
-          const val = whole + num / den;
-          return String(val);
+        if (s.includes('/')) {
+          const m = s.match(/^(\d+)\/(\d+)$/);
+          if (m) {
+            const num = parseInt(m[1], 10);
+            const den = parseInt(m[2], 10) || 1;
+            return String(num / den);
+          }
+          const parts = s.split('/');
+          if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+            const num = parseInt(parts[0], 10);
+            const den = parseInt(parts[1], 10) || 1;
+            return String(num / den);
+          }
+          return s;
         }
-        // Fallback: try parsing float
-        const f = Number(s);
-        if (!Number.isNaN(f)) return String(f);
+        if (s.includes('.')) {
+          const f = Number(s);
+          if (!Number.isNaN(f)) return String(f);
+        }
         return s;
+      };
+      for (const s of sections) {
+        const pno = partMap.get(s.pieceIndex) ?? 'NA';
+        const partId = `${prj}--${fmtSn(sn)}--${pno}`;
+        out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno, partId, prj]);
       }
-      if (s.includes('/')) {
-        const m = s.match(/^(\d+)\/(\d+)$/);
-        if (m) {
-          const num = parseInt(m[1], 10);
-          const den = parseInt(m[2], 10) || 1;
-          return String(num / den);
-        }
-        const parts = s.split('/');
-        if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
-          const num = parseInt(parts[0], 10);
-          const den = parseInt(parts[1], 10) || 1;
-          return String(num / den);
-        }
-        return s;
-      }
-      if (s.includes('.')) {
-        const f = Number(s);
-        if (!Number.isNaN(f)) return String(f);
-      }
-      return s;
-    };
-    for (const s of sections) {
-      const pno = partMap.get(s.pieceIndex) ?? 'NA';
-      const partId = `${remarkArg}--${fmtSn(sn)}--${pno}`;
-      out.push([fmtSn(sn), s.pieceIndex, s.pieceLength, toDecimalOd(s.pieceOD), pno, partId, remarkArg]);
     }
   }
 
